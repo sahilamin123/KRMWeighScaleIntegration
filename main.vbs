@@ -44,8 +44,9 @@ Function ReadIni(sFile, sSection, sKey, sDefault)
             If eqPos > 0 Then
                 k = Trim(Left(sLine, eqPos - 1))
                 v = Trim(Mid(sLine, eqPos + 1))
-                ' Strip inline comments
+                ' Strip inline comments (# or ; after a space)
                 cPos = InStr(v, " #")
+                If cPos = 0 Then cPos = InStr(v, " ;")
                 If cPos > 0 Then v = Trim(Left(v, cPos - 1))
                 If k = sKey Then ReadIni = v
             End If
@@ -194,12 +195,24 @@ End Function
 
 Dim api_url, poll_interval, log_file, request_timeout
 api_url         = ReadIni(CONFIG_FILE, "settings", "api_url",                    "http://localhost:8080/api/weight/get-weight")
-poll_interval   = CInt(ReadIni(CONFIG_FILE, "settings", "poll_interval_seconds",   "5"))
 log_file        = ReadIni(CONFIG_FILE, "settings", "log_file",                   "weight_log.txt")
-request_timeout = CInt(ReadIni(CONFIG_FILE, "settings", "request_timeout_seconds", "10"))
 
-' Resolve a relative log-file path to the script directory
-If Mid(log_file, 2, 2) <> ":\" And Left(log_file, 2) <> "\\" Then
+On Error Resume Next
+poll_interval   = CInt(ReadIni(CONFIG_FILE, "settings", "poll_interval_seconds",   "5"))
+If Err.Number <> 0 Then
+    WScript.Echo "ERROR: poll_interval_seconds in config.ini is not a valid integer."
+    WScript.Quit 1
+End If
+request_timeout = CInt(ReadIni(CONFIG_FILE, "settings", "request_timeout_seconds", "10"))
+If Err.Number <> 0 Then
+    WScript.Echo "ERROR: request_timeout_seconds in config.ini is not a valid integer."
+    WScript.Quit 1
+End If
+On Error GoTo 0
+
+' Resolve a relative log-file path to the script directory.
+' A path is absolute if it begins with a drive+colon+backslash (e.g. C:\) or a UNC prefix (\\).
+If Not (Mid(log_file, 2, 2) = ":\" Or Left(log_file, 2) = "\\") Then
     log_file = SCRIPT_DIR & log_file
 End If
 g_LogFile = log_file
@@ -218,6 +231,7 @@ Do
             WarnMessage "API returned success=false"
         Else
             weight = UnescapeJson(GetJsonString(jsonResponse, "weight"))
+            ' IDLE_WEIGHT is an exact sentinel value (STX + fixed string) — no trimming
             If weight <> IDLE_WEIGHT Then
                 LogMessage "Weight: " & weight
             End If
